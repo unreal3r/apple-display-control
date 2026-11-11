@@ -17,8 +17,12 @@ internal static class App {
     static readonly object LogLock=new object();
     internal static void Log(string text) { lock(LogLock) try { if(File.Exists(LogPath) && new FileInfo(LogPath).Length>512000) File.WriteAllText(LogPath,""); File.AppendAllText(LogPath,DateTimeOffset.Now.ToString("o")+" "+text+Environment.NewLine); } catch { } }
     [STAThread] static int Main(string[] args) {
-        Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
         if(args.Length>0&&args[0]=="--apply-update")return Updates.Apply(args);
+        Dpi.Initialize();return Run(args);
+    }
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    static int Run(string[] args){
+        Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
         if(args.Contains("--render-review")) {
             using(var window=new MainWindow(false)) {window.RenderReview();}return 0;
         }
@@ -76,23 +80,25 @@ internal sealed class MainWindow : Form {
     readonly TrayClickGate clickGate=new TrayClickGate(SystemInformation.DoubleClickTime+30);
     readonly QuickBrightness quick;
     bool drainingQuick,showingUpdates;Point trayAnchor;
-    bool updating,_busy,quitting,startHidden,rendering; Hid.Display selected;
-    bool busy {get{return _busy;}set{_busy=value;display.Enabled=!value;if(displayPanel!=null)displayPanel.Enabled=!value&&selected!=null;applyKeyboard.Enabled=!value&&standard.Enabled;}}
+    bool updating,busy,quitting,startHidden,rendering; Hid.Display selected;
     Panel displayPanel;
     internal MainWindow(bool hidden) {
+        SuspendLayout();DoubleBuffered=true;AutoScaleDimensions=new SizeF(96,96);
         startHidden=hidden; Text="Apple Display Control"; Font=new Font("Segoe UI",10); BackColor=Color.FromArgb(246,247,249);
         AutoScaleMode=AutoScaleMode.Dpi; ClientSize=new Size(690,680); MinimumSize=new Size(706,719); StartPosition=FormStartPosition.CenterScreen;
         Icon=Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         quick=new QuickBrightness(QueueQuickBrightness,Reveal);
-        var root=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=6,Padding=new Padding(24)};
+        var root=new SmoothTable {Dock=DockStyle.Fill,ColumnCount=1,RowCount=6,Padding=new Padding(24)};
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute,56)); root.RowStyles.Add(new RowStyle(SizeType.Absolute,58));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute,259)); root.RowStyles.Add(new RowStyle(SizeType.Absolute,135));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute,76)); root.RowStyles.Add(new RowStyle(SizeType.Percent,100)); Controls.Add(root);
         var heading=new Label {Text="Your Apple hardware",Font=new Font("Segoe UI",22,FontStyle.Bold),AutoSize=true,Margin=new Padding(0)}; root.Controls.Add(heading);
-        var top=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2}; top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100)); top.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,105));
+        var top=new SmoothTable {Dock=DockStyle.Fill,ColumnCount=2}; top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100)); top.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,105));
+        DpiChanged+=(s,e)=>BeginInvoke(new Action(()=>top.ColumnStyles[1].Width=Theme.Px(this,105)));
         display.DropDownStyle=ComboBoxStyle.DropDownList; display.Dock=DockStyle.Top; display.AccessibleName="Display"; top.Controls.Add(display);
         var refresh=new Button {Text="Refresh",Dock=DockStyle.Top,Height=30}; refresh.Click+=async(s,e)=>await Scan(true); top.Controls.Add(refresh); root.Controls.Add(top);
-        displayPanel=new Panel {Dock=DockStyle.Fill,BackColor=Color.White,Padding=new Padding(16)}; root.Controls.Add(displayPanel);
+        displayPanel=new SmoothPanel {Dock=DockStyle.Fill,BackColor=Color.White,Padding=new Padding(16)}; root.Controls.Add(displayPanel);
         AddLabel(displayPanel,"Brightness",16,12,200,28,FontStyle.Bold);
         percent.SetBounds(515,12,90,28); percent.TextAlign=ContentAlignment.MiddleRight; displayPanel.Controls.Add(percent);
         brightness.SetBounds(12,49,487,36); brightness.Minimum=0; brightness.Maximum=100; brightness.LargeChange=10; brightness.AccessibleName="Brightness percent"; displayPanel.Controls.Add(brightness);
@@ -101,7 +107,7 @@ internal sealed class MainWindow : Form {
         presets.DropDownStyle=ComboBoxStyle.DropDownList; presets.SetBounds(16,138,483,30); presets.AccessibleName="Reference preset"; displayPanel.Controls.Add(presets);
         applyPreset.Text="Apply"; applyPreset.SetBounds(511,137,90,32); displayPanel.Controls.Add(applyPreset);
         presetNote.SetBounds(16,177,590,70); presetNote.AutoEllipsis=true;presetNote.ForeColor=Color.FromArgb(85,91,104); displayPanel.Controls.Add(presetNote);
-        var kb=new Panel {Dock=DockStyle.Fill,BackColor=Color.White,Margin=new Padding(3,10,3,0)}; root.Controls.Add(kb);
+        var kb=new SmoothPanel {Dock=DockStyle.Fill,BackColor=Color.White,Margin=new Padding(3,10,3,0)}; root.Controls.Add(kb);
         AddLabel(kb,"Apple keyboard",16,10,230,26,FontStyle.Bold);
         standard.Text="Use F1, F2, etc. as standard function keys"; standard.SetBounds(16,43,470,27); kb.Controls.Add(standard);
         applyKeyboard.Text="Save"; applyKeyboard.SetBounds(511,41,90,32); kb.Controls.Add(applyKeyboard);
@@ -127,11 +133,12 @@ internal sealed class MainWindow : Form {
         connectMax.CheckedChanged+=(s,e)=>{if(!updating) SaveSettings();};
         login.CheckedChanged+=(s,e)=>{if(!updating) SetStartup();};
         poll.Interval=5000; poll.Tick+=async(s,e)=>await Scan(false);
-        Shown+=async(s,e)=>{if(rendering)return;if(startHidden) Hide(); LoadSettings(); await Scan(true); poll.Start();};
+        Shown+=async(s,e)=>{top.ColumnStyles[1].Width=Theme.Px(this,105);if(rendering)return;if(startHidden) Hide(); LoadSettings(); await Scan(true); poll.Start();};
         FormClosing+=(s,e)=>{if(!quitting) {e.Cancel=true; Hide();} };
         var updates=new Button{Text="App updates…",Width=125,Height=30};updates.Click+=(s,e)=>ShowUpdates();bottom.Controls.Add(updates);
         Theme.Apply(this);Theme.Apply(menu);help.BackColor=Theme.Field;help.ForeColor=Theme.Text;
         FormClosed+=(s,e)=>{poll.Stop();debounce.Stop();trayClicks.Dispose();quick.Dispose();tray.Dispose();help.Dispose();};
+        ResumeLayout(false);
     }
     static void AddLabel(Control parent,string text,int x,int y,int w,int h,FontStyle style) { var label=new Label {Text=text,Font=new Font("Segoe UI",10,style)}; label.SetBounds(x,y,w,h); parent.Controls.Add(label); }
     static long ClickTime {get{return (long)(Stopwatch.GetTimestamp()*1000.0/Stopwatch.Frequency);}}
@@ -162,7 +169,7 @@ internal sealed class MainWindow : Form {
     protected override void WndProc(ref Message m) {if(m.Msg==App.NativeMethods.ShowMessage) Reveal();base.WndProc(ref m);}
     void Error(Exception ex) {status.Text=ex.Message; App.Log(ex.ToString());}
     async Task Scan(bool force) {
-        if(busy||quick.Interacting||drainingQuick) return; busy=true;
+        if(busy||quick.Interacting||drainingQuick||brightness.Capture||debounce.Enabled||display.DroppedDown||presets.DroppedDown) return; busy=true;
         try {
             var found=await Task.Run(()=>Hid.Discover());
             var ids=new HashSet<string>(found.Select(d=>d.Id));
@@ -177,23 +184,25 @@ internal sealed class MainWindow : Form {
                         try {await Task.Run(()=>d.SetBrightness(100));} catch(Exception ex) {App.Log("Connection brightness: "+ex.Message);}
                     }
                 }
-                known[d.Id]=d;
+                if(alreadyKnown){previous.Name=d.Name;previous.BrightnessPath=d.BrightnessPath;previous.PresetPath=d.PresetPath;previous.Min=d.Min;previous.Max=d.Max;previous.Raw=d.Raw;previous.Presets=d.Presets;previous.Active=d.Active;}
+                else known[d.Id]=d;
             }
             string selectedId=selected==null?null:selected.Id;
-            updating=true; display.Items.Clear(); foreach(var d in known.Values) display.Items.Add(d);
+            updating=true;bool changed=Theme.SetChoices(display,known.Values.ToArray());
             selected=known.ContainsKey(selectedId??"")?known[selectedId]:known.Values.FirstOrDefault();
             display.SelectedItem=selected; updating=false; Populate();
             quick.Sync(known.Values);
-            status.Text=known.Count==0?"Connect a Studio Display or Studio Display XDR.":known.Count+" display"+(known.Count==1?"":"s")+" connected · Changes save silently";
+            if(changed||force)status.Text=known.Count==0?"Connect a Studio Display or Studio Display XDR.":known.Count+" display"+(known.Count==1?"":"s")+" connected · Changes save silently";
         } catch(Exception ex) {updating=false;Error(ex);} finally {busy=false;}
     }
     async Task SelectDisplay() {if(busy) return;selected=display.SelectedItem as Hid.Display; if(selected==null) return;busy=true;try {await Task.Run(()=>selected.Refresh());Populate();}catch(Exception ex){Error(ex);}finally{busy=false;}}
     bool IsAdjustable(Hid.Display d) {var active=d.Presets.Find(p=>p.Index==d.Active);return active==null || active.Adjustable;}
     void Populate() {
-        updating=true; displayPanel.Enabled=selected!=null; presets.Items.Clear();
+        updating=true; displayPanel.Enabled=selected!=null;
+        var choices=selected==null?new Hid.Preset[0]:selected.Presets.ToArray();
+        Theme.SetChoices(presets,choices);
         if(selected!=null) {
             brightness.Value=Math.Max(0,Math.Min(100,selected.Percent));percent.Text=brightness.Value+"%";
-            foreach(var p in selected.Presets) presets.Items.Add(p);
             presets.SelectedItem=selected.Presets.Find(p=>p.Index==selected.Active);
             brightness.Enabled=max.Enabled=IsAdjustable(selected);
             presets.Enabled=applyPreset.Enabled=selected.Presets.Count>0;
@@ -256,12 +265,14 @@ internal sealed class MainWindow : Form {
 internal sealed class PresetConfirm : Form {
     int seconds=15; readonly Label countdown=new Label(); readonly System.Windows.Forms.Timer timer=new System.Windows.Forms.Timer();
     internal PresetConfirm() {
+        SuspendLayout();AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;DoubleBuffered=true;
         Text="Keep this reference preset?";Font=new Font("Segoe UI",11);ClientSize=new Size(440,155);StartPosition=FormStartPosition.CenterParent;FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=MinimizeBox=false;
         countdown.SetBounds(20,20,400,55);Controls.Add(countdown);
         var keep=new Button {Text="Keep preset",DialogResult=DialogResult.OK};keep.SetBounds(195,100,110,32);Controls.Add(keep);
         var revert=new Button {Text="Revert",DialogResult=DialogResult.Cancel};revert.SetBounds(315,100,100,32);Controls.Add(revert);CancelButton=revert;AcceptButton=keep;
         timer.Interval=1000;timer.Tick+=(s,e)=>{seconds--;UpdateText();if(seconds<=0){DialogResult=DialogResult.Cancel;Close();}};UpdateText();Shown+=(s,e)=>timer.Start();FormClosed+=(s,e)=>timer.Dispose();
         Theme.Apply(this);
+        ResumeLayout(false);
     }
     void UpdateText(){countdown.Text="Can you see the display clearly?\nReverting automatically in "+seconds+" seconds.";}
 }

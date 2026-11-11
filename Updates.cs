@@ -15,7 +15,7 @@ internal sealed class Release {
     internal Version Version;internal string Url,Hash,Name;internal long Size;
 }
 internal static class Updates {
-    internal const string CurrentVersion="0.2.1";
+    internal const string CurrentVersion="0.2.2";
     const string Latest="https://api.github.com/repos/amedinafp/apple-display-control/releases/latest";
     internal static Release Parse(string json) {
         var data=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(json);
@@ -106,6 +106,7 @@ internal sealed class UpdateWindow : Form {
     readonly Label message=new Label();readonly Button install=new Button();readonly ProgressBar progress=new ProgressBar();readonly Button close=new Button();Release release;bool downloading;
     internal bool RestartRequested;
     internal UpdateWindow() {
+        SuspendLayout();AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;DoubleBuffered=true;
         Text="App updates";Font=new Font("Segoe UI",10);ClientSize=new Size(440,210);FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=MinimizeBox=false;StartPosition=FormStartPosition.CenterScreen;
         var heading=new Label{Text="Apple Display Control",Font=new Font("Segoe UI",14,FontStyle.Bold)};heading.SetBounds(20,18,400,30);Controls.Add(heading);
         message.SetBounds(20,58,400,57);message.Text="Checking GitHub for updates…";Controls.Add(message);
@@ -120,6 +121,7 @@ internal sealed class UpdateWindow : Form {
         };
         FormClosing+=(s,e)=>{if(downloading)e.Cancel=true;};
         Theme.Apply(this);
+        ResumeLayout(false);
     }
 }
 }

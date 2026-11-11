@@ -22,10 +22,16 @@ internal static class Tests {
         if(args.Length>0&&args[0]=="--tray"){File.WriteAllText(Executable+".restarted","ok");return 0;}
         if(args.Length>0&&args[0]=="--fixture-parent"){File.WriteAllText(args[1],"ready");Thread.Sleep(2000);return 0;}
         if(args.Length>0&&args[0]=="--echo"){File.WriteAllLines(args[1],args.Skip(2));return 0;}
+        Dpi.Initialize();return RunTests(args);
+    }
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    static int RunTests(string[] args){
         root=Path.Combine(App.Folder,"test-work",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
         try{
             Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
-            Clicks();KeyboardModes();SliderInput();Sliders();Metadata();Arguments();Install();
+            using(var dpiProbe=new Control())dpiProbe.CreateControl();
+            Assert(Dpi.PerMonitorV2,"Windows is still stretching a low-resolution, DPI-unaware window");
+            Clicks();KeyboardModes();StableRefresh();SliderInput();Sliders();Metadata();Arguments();Install();
             if(args.Contains("--online")){var release=System.Threading.Tasks.Task.Run(()=>Updates.Check()).GetAwaiter().GetResult();Assert(release.Version!=null,"Live release lookup failed");string file=System.Threading.Tasks.Task.Run(()=>Updates.Download(release,n=>{})).GetAwaiter().GetResult();Assert(File.Exists(file),"Live update download failed");File.Delete(file);Directory.Delete(Path.GetDirectoryName(file));Console.WriteLine("Live GitHub check, download and verification passed: "+release.Version);}
             Console.WriteLine("Passed "+count+" checks.");return 0;
         }catch(Exception ex){Console.Error.WriteLine(ex);return 1;}
@@ -36,6 +42,7 @@ internal static class Tests {
         gate.Single(3000);gate.Cancel();Assert(!gate.TakeSingle(3600),"Right-click cancellation failed");
     }
     static IEnumerable<Control> All(Control c){foreach(Control child in c.Controls){yield return child;foreach(var nested in All(child))yield return nested;}}
+    static void StableRefresh(){using(var box=new DarkComboBox()){object[] values={"Studio Display","Studio Display XDR"};Assert(Theme.SetChoices(box,values),"Initial display list was not populated");box.SelectedIndex=1;int changes=0;box.SelectedIndexChanged+=(s,e)=>changes++;for(int i=0;i<10;i++)Assert(!Theme.SetChoices(box,values),"Unchanged polling rebuilt the display list");Assert(box.SelectedIndex==1&&changes==0,"Background refresh changed the selection or flashed the list");}}
     static void KeyboardModes(){Assert(Keyboard.ModeForStandard(true)==0,"Checked must select F1-F12 mode, not brightness/media keys");Assert(Keyboard.ModeForStandard(false)==1,"Unchecked must select brightness/media keys");Assert(Keyboard.StandardForMode(0),"Reading standard-key mode must check the box");Assert(!Keyboard.StandardForMode(1),"Reading media-key mode must uncheck the box");}
     static void SliderInput(){using(var slider=new BrightnessSlider()){
         slider.AccessibilityObject.Value="35%";Assert(slider.Value==35,"Accessible slider value was not applied");slider.AccessibilityObject.Value="999%";Assert(slider.Value==100,"Slider did not clamp an out-of-range value");
@@ -48,6 +55,7 @@ internal static class Tests {
         var changes=new List<string>();var a=new Hid.Display{Id="studio",Name="Studio Display",Min=400,Max=60000,Raw=30000};var b=new Hid.Display{Id="xdr",Name="Studio Display XDR",Min=400,Max=60000,Raw=60000};
         using(var popup=new QuickBrightness((id,value)=>changes.Add(id+":"+value),()=>{})){
             popup.Sync(new[]{a,b});var sliders=All(popup).OfType<BrightnessSlider>().ToArray();Assert(sliders.Length==2,"Two displays did not get two sliders");
+            int width=popup.Width;for(int i=0;i<10;i++)popup.Sync(new[]{a,b});Assert(popup.Width==width&&All(popup).OfType<BrightnessSlider>().SequenceEqual(sliders),"Polling resized the popup or replaced its slider controls");
             var studio=sliders.Single(s=>s.AccessibleName=="Studio Display brightness percent");studio.Value=30;studio.Value=40;Pump(220);
             Assert(changes.SequenceEqual(new[]{"studio:40"}),"Rapid changes were not coalesced or targeted the wrong display");
             popup.Result("studio",40,40,null);popup.Sync(new[]{b});Assert(All(popup).OfType<BrightnessSlider>().Count()==1,"Disconnected display remained in the popup");
@@ -55,6 +63,7 @@ internal static class Tests {
             popup.Sync(new Hid.Display[0]);Assert(!All(popup).OfType<BrightnessSlider>().Any(),"Empty state retained a slider");
             b.Presets.Clear();popup.Sync(new[]{a,b});popup.Render(Path.Combine(App.Folder,"quick-preview-two-displays.png"));
         }
+        using(var row=new QuickBrightness.BrightnessRow(a.Id,(id,value)=>{})){row.Sync(a);foreach(int dpi in new[]{96,144,192,216,96,192}){row.LayoutAtDpi(dpi);Assert(row.Width==(int)Math.Round(360*dpi/96.0),"DPI change accumulated a width error");var slider=All(row).OfType<BrightnessSlider>().Single();Assert(slider.Left>=0&&slider.Right<=row.Width,"Slider was clipped after a DPI change");}}
     }
     static void Metadata(){
         const string url="https://github.com/amedinafp/apple-display-control/releases/download/v0.3.0/Apple.Display.Control.exe";

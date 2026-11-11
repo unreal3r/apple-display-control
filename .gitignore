@@ -9,4 +9,5 @@ quick-preview*.png
 test-work/
 .updates/
 *.previous
+*.exe.config
 *.zip

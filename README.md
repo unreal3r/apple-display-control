@@ -4,6 +4,8 @@ A small, portable Windows app for **Apple Studio Display** and **Studio Display 
 
 The app, tray popup, menus and dialogs use dark mode by default. No theme toggle or extra UI packages are required.
 
+Version 0.2.2 enables native per-monitor high-DPI rendering, including vector sliders and icons, and avoids rebuilding or greying out the interface during background display polling. The executable creates its small `.exe.config` file beside itself on first run so DPI support also works after an in-app upgrade or filename change. Keep that file beside the executable; no separate setup is needed.
+
 ## Use
 
 Open **Apple Display Control.exe**. Choose a display, then adjust brightness or choose a reference preset. Brightness changes are silent. Closing the window leaves the app in the notification area; choose **Quit** to stop it. Double-click the notification icon or run the app again to reopen it.
@@ -35,7 +37,7 @@ Keep the executable in a permanent folder before enabling launch at login. Setti
 | Apple Magic Keyboard with KeyMagic2 | Live mode query and same-value write/readback tested; physical key behavior after a mode change still needs user verification |
 | Other Apple keyboard drivers | Recognized control-device names; not physically verified |
 
-Windows 10/11 x64 and .NET Framework 4.x are required. The app uses native Windows APIs with no downloaded runtime dependencies. A USB data connection to the display is required, normally through Thunderbolt/USB-C.
+Windows 10/11 x64 and .NET Framework 4.8 are required. The app uses native Windows APIs with no downloaded runtime dependencies. A USB data connection to the display is required, normally through Thunderbolt/USB-C.
 
 This replaces the controls above, **not Apple's drivers**. Keep Apple's installed keyboard driver for the Fn preference and hardware/media-key handling. The app does not install, patch, or redistribute Apple drivers. It does not depend on the Boot Camp control-panel executable.
 
@@ -59,6 +61,7 @@ Source files:
 - `QuickBrightness.cs`: compact sliders and single/double-click handling.
 - `Updates.cs`: fixed-repository update checks, verified downloads, and atomic app replacement.
 - `Theme.cs`: shared dark colors and compact, keyboard-accessible sliders.
+- `Dpi.cs`, `app.config`, `app.manifest`: Windows high-DPI configuration and startup handling.
 
 Run `test.cmd` for the tray, multi-display, updater and security checks. `test.cmd --online` additionally checks the live GitHub release API. The installation test uses isolated fixture executables and verifies replacement, restart, backup, and preservation of settings; it does not replace your installed app.
 

@@ -1,0 +1,8 @@
+*.exe
+*.pdb
+*.log
+settings.xml
+diagnostics.txt
+verification.txt
+preview.png
+*.zip

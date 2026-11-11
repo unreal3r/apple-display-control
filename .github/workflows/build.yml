@@ -1,0 +1,23 @@
+name: Build Windows app
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile
+        shell: cmd
+        run: build.cmd
+      - name: Upload portable app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Apple-Display-Control-Windows-x64
+          path: |
+            Apple Display Control.exe
+            README.md
+            LICENSE

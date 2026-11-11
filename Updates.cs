@@ -61,6 +61,7 @@ internal static class Updates {
         result.Append('\\',slashes*2);result.Append('"');return result.ToString();
     }
     internal static void StartInstaller(string staged,Release release) {
+        ValidatePaths(staged,Application.ExecutablePath);
         using(var current=Process.GetCurrentProcess()) {
             string args="--apply-update "+current.Id+" "+current.StartTime.ToUniversalTime().Ticks+" "+Quote(Application.ExecutablePath)+" "+release.Hash;
             Process.Start(new ProcessStartInfo(staged,args){UseShellExecute=false,CreateNoWindow=true,WindowStyle=ProcessWindowStyle.Hidden,WorkingDirectory=App.Folder});
@@ -93,7 +94,7 @@ internal static class Updates {
         }finally{if(next!=null&&File.Exists(next))try{File.Delete(next);}catch{}}
     }
     internal static void ValidatePaths(string staged,string target){
-        string name=Path.GetFileName(target);if(name!="Apple Display Control.exe"&&name!="Apple.Display.Control.exe")throw new Exception("An update can only replace Apple Display Control.");
+        string name=Path.GetFileName(target);if(name!="Apple Display Control.exe"&&name!="Apple.Display.Control.exe")throw new Exception("Keep the app named Apple Display Control.exe or Apple.Display.Control.exe to use in-app updates.");
         string folder=Path.GetDirectoryName(target),root=Path.Combine(folder,".updates"),stage=Path.GetDirectoryName(staged);Guid id;
         if(!string.Equals(Path.GetDirectoryName(stage),root,StringComparison.OrdinalIgnoreCase)||!Guid.TryParseExact(Path.GetFileName(stage),"N",out id)||Path.GetFileName(staged)!="Apple.Display.Control.exe")throw new Exception("Invalid update staging location.");
         foreach(string path in new[]{folder,root,stage,staged,target,target+".previous"})if((File.Exists(path)||Directory.Exists(path))&&(File.GetAttributes(path)&FileAttributes.ReparsePoint)!=0)throw new Exception("Updates cannot replace linked files or folders.");

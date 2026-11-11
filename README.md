@@ -6,6 +6,10 @@ A small, portable Windows app for **Apple Studio Display** and **Studio Display 
 
 Open **Apple Display Control.exe**. Choose a display, then adjust brightness or choose a reference preset. Brightness changes are silent. Closing the window leaves the app in the notification area; choose **Quit** to stop it. Double-click the notification icon or run the app again to reopen it.
 
+**Single-click the notification icon** for a compact brightness popup with one slider per connected display. Click outside it or press Escape to dismiss it. **Double-click** opens the full app. Right-click keeps the usual menu.
+
+**App updates…** in the full window, or **Check for updates…** in the right-click menu, checks this project's stable GitHub releases. Choose **Download and restart** to install a newer version. Updates preserve your settings and startup shortcut, run without administrator access, and keep the previous executable as a backup. Version 0.1.0 needs one manual upgrade to get this feature.
+
 - Separate brightness and reference presets for each connected display.
 - A **100%** button and a notification-area command to set all displays to maximum.
 - Detects displays connected while the app is running, including long after login.
@@ -48,6 +52,16 @@ Source files:
 - `Hid.cs`: HID discovery, per-device Container ID pairing, brightness and reference-preset controls.
 - `SystemControls.cs`: Windows HDR query and Apple keyboard driver access.
 - `App.cs`: window, notification area, connection detection, startup preference, and diagnostics.
+- `QuickBrightness.cs`: compact sliders and single/double-click handling.
+- `Updates.cs`: fixed-repository update checks, verified downloads, and atomic app replacement.
+
+Run `test.cmd` for the tray, multi-display, updater and security checks. `test.cmd --online` additionally checks the live GitHub release API. The installation test uses isolated fixture executables and verifies replacement, restart, backup, and preservation of settings; it does not replace your installed app.
+
+## Security boundaries
+
+The app opens no listening port and accepts no remote commands. The updater contacts only GitHub for this repository's release metadata and assets. It checks HTTPS, the exact asset address, file size and GitHub's SHA-256 digest before running a download. The replacement helper accepts only this app's filenames in a dedicated staging folder, rejects symbolic links and redirected folders, and uses an atomic replacement with recovery. It never invokes a command shell or requests elevation. Administrator approval is reserved for the existing Apple keyboard-driver preference.
+
+Updates trust this repository and GitHub's HTTPS service. They are not independently code-signed. This design and its tests reduce risk; they do not establish that the software has no vulnerabilities.
 
 ## Diagnostics and verification
 

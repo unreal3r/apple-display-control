@@ -18,6 +18,7 @@ internal static class App {
     internal static void Log(string text) { lock(LogLock) try { if(File.Exists(LogPath) && new FileInfo(LogPath).Length>512000) File.WriteAllText(LogPath,""); File.AppendAllText(LogPath,DateTimeOffset.Now.ToString("o")+" "+text+Environment.NewLine); } catch { } }
     [STAThread] static int Main(string[] args) {
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
+        if(args.Length>0&&args[0]=="--apply-update")return Updates.Apply(args);
         if(args.Contains("--render-review")) {
             using(var window=new MainWindow(false)) {window.RenderReview();}return 0;
         }
@@ -70,6 +71,11 @@ internal sealed class MainWindow : Form {
     readonly NotifyIcon tray=new NotifyIcon(); readonly System.Windows.Forms.Timer poll=new System.Windows.Forms.Timer(),debounce=new System.Windows.Forms.Timer();
     readonly ToolTip help=new ToolTip {AutoPopDelay=20000};
     readonly Dictionary<string,Hid.Display> known=new Dictionary<string,Hid.Display>();
+    readonly Dictionary<string,int> quickChanges=new Dictionary<string,int>();
+    readonly System.Windows.Forms.Timer trayClicks=new System.Windows.Forms.Timer();
+    readonly TrayClickGate clickGate=new TrayClickGate(SystemInformation.DoubleClickTime+30);
+    readonly QuickBrightness quick;
+    bool drainingQuick,showingUpdates;Point trayAnchor;
     bool updating,_busy,quitting,startHidden,rendering; Hid.Display selected;
     bool busy {get{return _busy;}set{_busy=value;display.Enabled=!value;if(displayPanel!=null)displayPanel.Enabled=!value&&selected!=null;applyKeyboard.Enabled=!value&&standard.Enabled;}}
     Panel displayPanel;
@@ -77,6 +83,7 @@ internal sealed class MainWindow : Form {
         startHidden=hidden; Text="Apple Display Control"; Font=new Font("Segoe UI",10); BackColor=Color.FromArgb(246,247,249);
         AutoScaleMode=AutoScaleMode.Dpi; ClientSize=new Size(690,680); MinimumSize=new Size(706,719); StartPosition=FormStartPosition.CenterScreen;
         Icon=Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        quick=new QuickBrightness(QueueQuickBrightness,Reveal);
         var root=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=6,Padding=new Padding(24)};
         root.RowStyles.Add(new RowStyle(SizeType.Absolute,56)); root.RowStyles.Add(new RowStyle(SizeType.Absolute,58));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute,259)); root.RowStyles.Add(new RowStyle(SizeType.Absolute,135));
@@ -103,10 +110,14 @@ internal sealed class MainWindow : Form {
         connectMax.Text="Set brightness to 100% when a display connects"; connectMax.SetBounds(0,12,610,25); options.Controls.Add(connectMax);
         login.Text="Open in the notification area when I log into Windows"; login.SetBounds(0,40,610,25); options.Controls.Add(login);
         var bottom=new FlowLayoutPanel {Dock=DockStyle.Fill,FlowDirection=FlowDirection.LeftToRight}; root.Controls.Add(bottom);
-        status.AutoSize=false; status.Size=new Size(450,44); status.ForeColor=Color.FromArgb(85,91,104); status.Text="Looking for displays…"; bottom.Controls.Add(status);
+        status.AutoSize=false; status.Size=new Size(350,44); status.ForeColor=Color.FromArgb(85,91,104); status.Text="Looking for displays…"; bottom.Controls.Add(status);
         var exit=new Button {Text="Quit",Width=80,Height=30}; exit.Click+=(s,e)=>Quit(); bottom.Controls.Add(exit);
-        var menu=new ContextMenuStrip(); menu.Items.Add("Open controls",null,(s,e)=>Reveal()); menu.Items.Add("Set all displays to 100%",null,async(s,e)=>await SetAllMax()); menu.Items.Add(new ToolStripSeparator()); menu.Items.Add("Quit",null,(s,e)=>Quit());
-        tray.Icon=Icon; tray.Text="Apple Display Control"; tray.ContextMenuStrip=menu; tray.Visible=true; tray.DoubleClick+=(s,e)=>Reveal();
+        var menu=new ContextMenuStrip(); menu.Items.Add("Open controls",null,(s,e)=>Reveal()); menu.Items.Add("Set all displays to 100%",null,async(s,e)=>await SetAllMax());menu.Items.Add("Check for updates…",null,(s,e)=>ShowUpdates()); menu.Items.Add(new ToolStripSeparator()); menu.Items.Add("Quit",null,(s,e)=>Quit());
+        tray.Icon=Icon; tray.Text="Apple Display Control"; tray.ContextMenuStrip=menu; tray.Visible=true;
+        tray.MouseClick+=(s,e)=>{if(e.Button==MouseButtons.Left){trayAnchor=Cursor.Position;if(clickGate.Single(ClickTime))trayClicks.Start();}};
+        tray.MouseDoubleClick+=(s,e)=>{if(e.Button==MouseButtons.Left){clickGate.Double(ClickTime);trayClicks.Stop();quick.Hide();Reveal();}};
+        menu.Opening+=(s,e)=>{clickGate.Cancel();trayClicks.Stop();quick.Hide();};
+        trayClicks.Interval=30;trayClicks.Tick+=async(s,e)=>{if(clickGate.TakeSingle(ClickTime)){trayClicks.Stop();await OpenQuick();}};
         display.SelectedIndexChanged+=async(s,e)=>{ if(!updating) await SelectDisplay(); };
         brightness.ValueChanged+=(s,e)=>{ percent.Text=brightness.Value+"%"; if(!updating) { debounce.Stop(); debounce.Start(); } };
         debounce.Interval=180; debounce.Tick+=async(s,e)=>{debounce.Stop(); await SetBrightness(brightness.Value);};
@@ -118,22 +129,39 @@ internal sealed class MainWindow : Form {
         poll.Interval=5000; poll.Tick+=async(s,e)=>await Scan(false);
         Shown+=async(s,e)=>{if(rendering)return;if(startHidden) Hide(); LoadSettings(); await Scan(true); poll.Start();};
         FormClosing+=(s,e)=>{if(!quitting) {e.Cancel=true; Hide();} };
-        FormClosed+=(s,e)=>{poll.Stop(); debounce.Stop(); tray.Dispose();help.Dispose();};
+        var updates=new Button{Text="App updates…",Width=125,Height=30};updates.Click+=(s,e)=>ShowUpdates();bottom.Controls.Add(updates);
+        FormClosed+=(s,e)=>{poll.Stop();debounce.Stop();trayClicks.Dispose();quick.Dispose();tray.Dispose();help.Dispose();};
     }
     static void AddLabel(Control parent,string text,int x,int y,int w,int h,FontStyle style) { var label=new Label {Text=text,Font=new Font("Segoe UI",10,style)}; label.SetBounds(x,y,w,h); parent.Controls.Add(label); }
+    static long ClickTime {get{return (long)(Stopwatch.GetTimestamp()*1000.0/Stopwatch.Frequency);}}
     internal void RenderReview() {
         LoadSettings();var found=Hid.Discover();foreach(var d in found){try{d.LoadPresets();}catch{}known[d.Id]=d;display.Items.Add(d);}selected=found.FirstOrDefault();updating=true;display.SelectedItem=selected;updating=false;Populate();
         status.Text=found.Count+" display(s) connected · Changes save silently";
         rendering=true;ShowInTaskbar=false;Opacity=0;StartPosition=FormStartPosition.Manual;Location=new Point(-30000,-30000);Show();PerformLayout();
         using(var bitmap=new Bitmap(Width,Height)){DrawToBitmap(bitmap,new Rectangle(0,0,Width,Height));bitmap.Save(Path.Combine(App.Folder,"preview.png"));}Hide();
+        quick.Sync(known.Values);quick.Render(Path.Combine(App.Folder,"quick-preview.png"));
         tray.Visible=false;tray.Dispose();Dispose();
     }
-    void Reveal() {Show(); WindowState=FormWindowState.Normal; Activate();}
-    void Quit() {if(busy) {status.Text="Finishing the current operation…";return;} quitting=true;Close();}
+    void Reveal() {clickGate.Cancel();trayClicks.Stop();quick.Hide();Show(); WindowState=FormWindowState.Normal; Activate();}
+    void ShowUpdates(){if(busy||drainingQuick||quick.Interacting||showingUpdates)return;quick.Hide();poll.Stop();showingUpdates=true;try{using(var dialog=new UpdateWindow()){dialog.ShowDialog(this);if(dialog.RestartRequested){quitting=true;Close();}else poll.Start();}}finally{showingUpdates=false;}}
+    async Task OpenQuick(){if(showingUpdates)return;if(!busy)await Scan(false);if(quitting||IsDisposed||showingUpdates)return;quick.Sync(known.Values);quick.ShowNear(trayAnchor);}
+    void QueueQuickBrightness(string id,int value){quickChanges[id]=value;DrainQuickBrightness();}
+    async void DrainQuickBrightness(){
+        if(drainingQuick)return;drainingQuick=true;
+        try{while(quickChanges.Count>0&&!quitting){
+            while(busy&&!quitting)await Task.Delay(60);if(quitting)break;
+            var next=quickChanges.First();quickChanges.Remove(next.Key);Hid.Display d;
+            if(!known.TryGetValue(next.Key,out d)){quick.Result(next.Key,next.Value,next.Value,"Display disconnected.");continue;}
+            busy=true;
+            try{if(!IsAdjustable(d))throw new Exception("Brightness is fixed by the reference preset.");await Task.Run(()=>d.SetBrightness(next.Value));quick.Result(d.Id,next.Value,d.Percent,null);if(selected!=null&&selected.Id==d.Id){selected=d;updating=true;brightness.Value=Math.Max(0,Math.Min(100,d.Percent));updating=false;}status.Text=d.Name+" · "+d.Percent+"%";}
+            catch(Exception ex){quick.Result(d.Id,next.Value,d.Percent,ex.Message);Error(ex);}finally{busy=false;}
+        }}finally{drainingQuick=false;}
+    }
+    void Quit() {if(busy||showingUpdates) {status.Text="Finishing the current operation…";return;} quitting=true;Close();}
     protected override void WndProc(ref Message m) {if(m.Msg==App.NativeMethods.ShowMessage) Reveal();base.WndProc(ref m);}
     void Error(Exception ex) {status.Text=ex.Message; App.Log(ex.ToString());}
     async Task Scan(bool force) {
-        if(busy) return; busy=true;
+        if(busy||quick.Interacting||drainingQuick) return; busy=true;
         try {
             var found=await Task.Run(()=>Hid.Discover());
             var ids=new HashSet<string>(found.Select(d=>d.Id));
@@ -154,6 +182,7 @@ internal sealed class MainWindow : Form {
             updating=true; display.Items.Clear(); foreach(var d in known.Values) display.Items.Add(d);
             selected=known.ContainsKey(selectedId??"")?known[selectedId]:known.Values.FirstOrDefault();
             display.SelectedItem=selected; updating=false; Populate();
+            quick.Sync(known.Values);
             status.Text=known.Count==0?"Connect a Studio Display or Studio Display XDR.":known.Count+" display"+(known.Count==1?"":"s")+" connected · Changes save silently";
         } catch(Exception ex) {updating=false;Error(ex);} finally {busy=false;}
     }
@@ -179,7 +208,7 @@ internal sealed class MainWindow : Form {
         if(busy||selected==null)return;busy=true;Hid.Display d=selected;
         try {await Task.Run(()=>d.SetBrightness(value));updating=true;brightness.Value=Math.Max(0,Math.Min(100,d.Percent));updating=false;status.Text=d.Name+" · "+d.Percent+"%";}catch(Exception ex){Error(ex);}finally{busy=false;}
     }
-    async Task SetAllMax() {if(busy)return; foreach(var d in known.Values.ToArray()) {if(!IsAdjustable(d))continue;busy=true;try{await Task.Run(()=>d.SetBrightness(100));}catch(Exception ex){Error(ex);}finally{busy=false;}}Populate();}
+    async Task SetAllMax() {if(busy||showingUpdates)return; foreach(var d in known.Values.ToArray()) {if(!IsAdjustable(d))continue;busy=true;try{await Task.Run(()=>d.SetBrightness(100));}catch(Exception ex){Error(ex);}finally{busy=false;}}Populate();}
     async Task ChangePreset() {
         if(busy||selected==null)return;var next=presets.SelectedItem as Hid.Preset;if(next==null||next.Index==selected.Active)return;
         busy=true; Hid.Display d=selected; int? previous=d.Active;

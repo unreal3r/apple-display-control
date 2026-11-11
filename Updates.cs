@@ -15,7 +15,7 @@ internal sealed class Release {
     internal Version Version;internal string Url,Hash,Name;internal long Size;
 }
 internal static class Updates {
-    internal const string CurrentVersion="0.2.2";
+    internal const string CurrentVersion="0.2.3";
     const string Latest="https://api.github.com/repos/amedinafp/apple-display-control/releases/latest";
     internal static Release Parse(string json) {
         var data=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(json);

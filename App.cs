@@ -76,8 +76,7 @@ internal sealed class MainWindow : Form {
     readonly ToolTip help=new ToolTip {AutoPopDelay=20000};
     readonly Dictionary<string,Hid.Display> known=new Dictionary<string,Hid.Display>();
     readonly Dictionary<string,int> quickChanges=new Dictionary<string,int>();
-    readonly System.Windows.Forms.Timer trayClicks=new System.Windows.Forms.Timer();
-    readonly TrayClickGate clickGate=new TrayClickGate(SystemInformation.DoubleClickTime+30);
+    readonly TrayClickGate clickGate=new TrayClickGate(SystemInformation.DoubleClickTime);
     readonly QuickBrightness quick;
     bool drainingQuick,showingUpdates;Point trayAnchor;
     bool updating,busy,quitting,startHidden,rendering; Hid.Display selected;
@@ -120,10 +119,9 @@ internal sealed class MainWindow : Form {
         var exit=new Button {Text="Quit",Width=80,Height=30}; exit.Click+=(s,e)=>Quit(); bottom.Controls.Add(exit);
         var menu=new ContextMenuStrip(); menu.Items.Add("Open controls",null,(s,e)=>Reveal()); menu.Items.Add("Set all displays to 100%",null,async(s,e)=>await SetAllMax());menu.Items.Add("Check for updates…",null,(s,e)=>ShowUpdates()); menu.Items.Add(new ToolStripSeparator()); menu.Items.Add("Quit",null,(s,e)=>Quit());
         tray.Icon=Icon; tray.Text="Apple Display Control"; tray.ContextMenuStrip=menu; tray.Visible=true;
-        tray.MouseClick+=(s,e)=>{if(e.Button==MouseButtons.Left){trayAnchor=Cursor.Position;if(clickGate.Single(ClickTime))trayClicks.Start();}};
-        tray.MouseDoubleClick+=(s,e)=>{if(e.Button==MouseButtons.Left){clickGate.Double(ClickTime);trayClicks.Stop();quick.Hide();Reveal();}};
-        menu.Opening+=(s,e)=>{clickGate.Cancel();trayClicks.Stop();quick.Hide();};
-        trayClicks.Interval=30;trayClicks.Tick+=async(s,e)=>{if(clickGate.TakeSingle(ClickTime)){trayClicks.Stop();await OpenQuick();}};
+        tray.MouseClick+=async(s,e)=>{if(e.Button==MouseButtons.Left&&clickGate.Single(ClickTime)){trayAnchor=Cursor.Position;await OpenQuick();}};
+        tray.MouseDoubleClick+=(s,e)=>{if(e.Button==MouseButtons.Left){clickGate.Double(ClickTime);quick.Hide();Reveal();}};
+        menu.Opening+=(s,e)=>quick.Hide();
         display.SelectedIndexChanged+=async(s,e)=>{ if(!updating) await SelectDisplay(); };
         brightness.ValueChanged+=(s,e)=>{ percent.Text=brightness.Value+"%"; if(!updating) { debounce.Stop(); debounce.Start(); } };
         debounce.Interval=180; debounce.Tick+=async(s,e)=>{debounce.Stop(); await SetBrightness(brightness.Value);};
@@ -137,7 +135,7 @@ internal sealed class MainWindow : Form {
         FormClosing+=(s,e)=>{if(!quitting) {e.Cancel=true; Hide();} };
         var updates=new Button{Text="App updates…",Width=125,Height=30};updates.Click+=(s,e)=>ShowUpdates();bottom.Controls.Add(updates);
         Theme.Apply(this);Theme.Apply(menu);help.BackColor=Theme.Field;help.ForeColor=Theme.Text;
-        FormClosed+=(s,e)=>{poll.Stop();debounce.Stop();trayClicks.Dispose();quick.Dispose();tray.Dispose();help.Dispose();};
+        FormClosed+=(s,e)=>{poll.Stop();debounce.Stop();quick.Dispose();tray.Dispose();help.Dispose();};
         ResumeLayout(false);
     }
     static void AddLabel(Control parent,string text,int x,int y,int w,int h,FontStyle style) { var label=new Label {Text=text,Font=new Font("Segoe UI",10,style)}; label.SetBounds(x,y,w,h); parent.Controls.Add(label); }
@@ -150,9 +148,9 @@ internal sealed class MainWindow : Form {
         quick.Sync(known.Values);quick.Render(Path.Combine(App.Folder,"quick-preview.png"));
         tray.Visible=false;tray.Dispose();Dispose();
     }
-    void Reveal() {clickGate.Cancel();trayClicks.Stop();quick.Hide();Show(); WindowState=FormWindowState.Normal; Activate();}
+    void Reveal() {quick.Hide();Show(); WindowState=FormWindowState.Normal; Activate();}
     void ShowUpdates(){if(busy||drainingQuick||quick.Interacting||showingUpdates)return;quick.Hide();poll.Stop();showingUpdates=true;try{using(var dialog=new UpdateWindow()){dialog.ShowDialog(this);if(dialog.RestartRequested){quitting=true;Close();}else poll.Start();}}finally{showingUpdates=false;}}
-    async Task OpenQuick(){if(showingUpdates)return;if(!busy)await Scan(false);if(quitting||IsDisposed||showingUpdates)return;quick.Sync(known.Values);quick.ShowNear(trayAnchor);}
+    async Task OpenQuick(){if(quitting||IsDisposed||showingUpdates)return;quick.Sync(known.Values);quick.ShowNear(trayAnchor);await Scan(false);}
     void QueueQuickBrightness(string id,int value){quickChanges[id]=value;DrainQuickBrightness();}
     async void DrainQuickBrightness(){
         if(drainingQuick)return;drainingQuick=true;

@@ -12,6 +12,8 @@ Open **Apple Display Control.exe**. Choose a display, then adjust brightness or 
 
 **Single-click the notification icon** for a compact brightness popup with one slider per connected display. Click outside it or press Escape to dismiss it. **Double-click** opens the full app. Right-click keeps the usual menu.
 
+The popup opens immediately using the already loaded display state, then refreshes device information in the background. It does not wait for the double-click interval or a new hardware scan. On a double-click the popup switches to the full window.
+
 **App updates…** in the full window, or **Check for updates…** in the right-click menu, checks this project's stable GitHub releases. Choose **Download and restart** to install a newer version. Updates preserve your settings and startup shortcut, run without administrator access, and keep the previous executable as a backup. Version 0.1.0 needs one manual upgrade to get this feature.
 
 - Separate brightness and reference presets for each connected display.

@@ -37,9 +37,8 @@ internal static class Tests {
         }catch(Exception ex){Console.Error.WriteLine(ex);return 1;}
     }
     static void Clicks(){
-        var gate=new TrayClickGate(500);gate.Single(100);Assert(!gate.TakeSingle(599),"Single click opened before the double-click interval");Assert(gate.TakeSingle(600),"Single click did not open");Assert(!gate.TakeSingle(700),"Single click opened twice");
-        gate.Single(1000);gate.Double(1200);gate.Single(1201);Assert(!gate.TakeSingle(1800),"Double click left a pending popup");gate.Single(1900);Assert(gate.TakeSingle(2400),"Click after a double-click was lost");
-        gate.Single(3000);gate.Cancel();Assert(!gate.TakeSingle(3600),"Right-click cancellation failed");
+        var gate=new TrayClickGate(500);Assert(gate.Single(100),"First click was delayed by the double-click interval");
+        gate.Double(200);Assert(!gate.Single(201),"Trailing double-click event reopened the popup");Assert(!gate.Single(700),"Double-click suppression ended too early");Assert(gate.Single(701),"A subsequent single click was lost");
     }
     static IEnumerable<Control> All(Control c){foreach(Control child in c.Controls){yield return child;foreach(var nested in All(child))yield return nested;}}
     static void StableRefresh(){using(var box=new DarkComboBox()){object[] values={"Studio Display","Studio Display XDR"};Assert(Theme.SetChoices(box,values),"Initial display list was not populated");box.SelectedIndex=1;int changes=0;box.SelectedIndexChanged+=(s,e)=>changes++;for(int i=0;i<10;i++)Assert(!Theme.SetChoices(box,values),"Unchanged polling rebuilt the display list");Assert(box.SelectedIndex==1&&changes==0,"Background refresh changed the selection or flashed the list");}}

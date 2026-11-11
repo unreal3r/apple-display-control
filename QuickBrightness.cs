@@ -6,15 +6,12 @@ using System.Linq;
 using System.Windows.Forms;
 
 namespace AppleControl {
-// Delay the single-click action until Windows' double-click interval has passed.
-// A second MouseClick after MouseDoubleClick must not reopen the small popup.
+// Open on the first click; suppress a trailing click after a double-click.
 internal sealed class TrayClickGate {
-    readonly int interval; long due=-1,suppressUntil=-1;
+    readonly int interval;long suppressUntil=-1;
     internal TrayClickGate(int interval) {this.interval=interval;}
-    internal bool Single(long now) {if(now<=suppressUntil)return false;due=now+interval;return true;}
-    internal void Double(long now) {due=-1;suppressUntil=now+interval;}
-    internal void Cancel() {due=-1;}
-    internal bool TakeSingle(long now) {if(due<0||now<due)return false;due=-1;return true;}
+    internal bool Single(long now) {return now>suppressUntil;}
+    internal void Double(long now) {suppressUntil=now+interval;}
 }
 
 internal sealed class QuickBrightness : Form {

@@ -47,17 +47,18 @@ internal static class Keyboard {
             var modes=ReadLive();if(!modes.ContainsKey(name)||modes[name]!=mode) throw new Exception("Apple keyboard driver did not retain the requested mode.");
         }
     }
-    // The control device uses 1 for the standard-key checkbox. The registry
-    // OSXFnBehavior flag has the opposite meaning: 1 selects media keys.
+    // Both the live driver and OSXFnBehavior use 0 for F1-F12, 1 for media keys.
+    internal static uint ModeForStandard(bool standard){return standard?0u:1u;}
+    internal static bool StandardForMode(uint mode){return mode==0;}
     internal static void Set(bool standard) {
         var found=ReadSettings(); var live=ReadLive();
         if(found.Count==0 && live.Count==0) throw new Exception("Apple keyboard driver not found. Keep the Apple keyboard driver installed.");
         var changed=new List<string>();
         try {
             foreach(var pair in found) using(var key=Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\"+pair.Key,true)) {
-                key.SetValue("OSXFnBehavior",new byte[]{standard?(byte)0:(byte)1},RegistryValueKind.Binary); changed.Add(pair.Key);
+                key.SetValue("OSXFnBehavior",new byte[]{(byte)ModeForStandard(standard)},RegistryValueKind.Binary); changed.Add(pair.Key);
             }
-            foreach(var pair in live) SetLive(pair.Key,standard?1u:0u);
+            foreach(var pair in live) SetLive(pair.Key,ModeForStandard(standard));
         } catch {
             foreach(var pair in live) try {SetLive(pair.Key,pair.Value);}catch(Exception ex){App.Log("Keyboard rollback: "+ex.Message);}
             foreach(string name in changed) using(var key=Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\"+name,true)) key.SetValue("OSXFnBehavior",new byte[]{found[name]},RegistryValueKind.Binary);

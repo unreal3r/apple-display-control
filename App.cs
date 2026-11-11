@@ -64,8 +64,8 @@ internal static class App {
 }
 
 internal sealed class MainWindow : Form {
-    readonly ComboBox display=new ComboBox(),presets=new ComboBox();
-    readonly TrackBar brightness=new TrackBar(); readonly Label percent=new Label(),status=new Label(),presetNote=new Label(),keyboardNote=new Label();
+    readonly ComboBox display=new DarkComboBox(),presets=new DarkComboBox();
+    readonly BrightnessSlider brightness=new BrightnessSlider(); readonly Label percent=new Label(),status=new Label(),presetNote=new Label(),keyboardNote=new Label();
     readonly CheckBox connectMax=new CheckBox(),login=new CheckBox(),standard=new CheckBox();
     readonly Button applyPreset=new Button(),applyKeyboard=new Button(),max=new Button();
     readonly NotifyIcon tray=new NotifyIcon(); readonly System.Windows.Forms.Timer poll=new System.Windows.Forms.Timer(),debounce=new System.Windows.Forms.Timer();
@@ -95,7 +95,7 @@ internal sealed class MainWindow : Form {
         displayPanel=new Panel {Dock=DockStyle.Fill,BackColor=Color.White,Padding=new Padding(16)}; root.Controls.Add(displayPanel);
         AddLabel(displayPanel,"Brightness",16,12,200,28,FontStyle.Bold);
         percent.SetBounds(515,12,90,28); percent.TextAlign=ContentAlignment.MiddleRight; displayPanel.Controls.Add(percent);
-        brightness.SetBounds(12,49,487,48); brightness.Minimum=0; brightness.Maximum=100; brightness.TickFrequency=10; brightness.LargeChange=10; brightness.AccessibleName="Brightness percent"; displayPanel.Controls.Add(brightness);
+        brightness.SetBounds(12,49,487,36); brightness.Minimum=0; brightness.Maximum=100; brightness.LargeChange=10; brightness.AccessibleName="Brightness percent"; displayPanel.Controls.Add(brightness);
         max.Text="100%"; max.SetBounds(511,50,90,34); displayPanel.Controls.Add(max);
         AddLabel(displayPanel,"Reference preset",16,105,220,26,FontStyle.Bold);
         presets.DropDownStyle=ComboBoxStyle.DropDownList; presets.SetBounds(16,138,483,30); presets.AccessibleName="Reference preset"; displayPanel.Controls.Add(presets);
@@ -130,6 +130,7 @@ internal sealed class MainWindow : Form {
         Shown+=async(s,e)=>{if(rendering)return;if(startHidden) Hide(); LoadSettings(); await Scan(true); poll.Start();};
         FormClosing+=(s,e)=>{if(!quitting) {e.Cancel=true; Hide();} };
         var updates=new Button{Text="App updates…",Width=125,Height=30};updates.Click+=(s,e)=>ShowUpdates();bottom.Controls.Add(updates);
+        Theme.Apply(this);Theme.Apply(menu);help.BackColor=Theme.Field;help.ForeColor=Theme.Text;
         FormClosed+=(s,e)=>{poll.Stop();debounce.Stop();trayClicks.Dispose();quick.Dispose();tray.Dispose();help.Dispose();};
     }
     static void AddLabel(Control parent,string text,int x,int y,int w,int h,FontStyle style) { var label=new Label {Text=text,Font=new Font("Segoe UI",10,style)}; label.SetBounds(x,y,w,h); parent.Controls.Add(label); }
@@ -238,7 +239,7 @@ internal sealed class MainWindow : Form {
         try {if(File.Exists(App.SettingsPath))connectMax.Checked=(string)XDocument.Load(App.SettingsPath).Root.Element("MaxOnConnect")=="true";}catch(Exception ex){App.Log("Settings: "+ex.Message);}
         login.Checked=File.Exists(StartupPath);
         var kb=Keyboard.ReadSettings();var live=Keyboard.ReadLive();standard.Enabled=applyKeyboard.Enabled=kb.Count>0||live.Count>0;
-        standard.Checked=live.Count>0?live.Values.All(v=>v==1):kb.Count>0&&kb.Values.All(v=>v==0);
+        standard.Checked=live.Count>0?live.Values.All(Keyboard.StandardForMode):kb.Count>0&&kb.Values.All(v=>Keyboard.StandardForMode(v));
         keyboardNote.Text=!standard.Enabled?"Apple keyboard driver not detected.":"Hold Fn for the other action. Saving requires Windows approval.";
         updating=false;
     }
@@ -260,6 +261,7 @@ internal sealed class PresetConfirm : Form {
         var keep=new Button {Text="Keep preset",DialogResult=DialogResult.OK};keep.SetBounds(195,100,110,32);Controls.Add(keep);
         var revert=new Button {Text="Revert",DialogResult=DialogResult.Cancel};revert.SetBounds(315,100,100,32);Controls.Add(revert);CancelButton=revert;AcceptButton=keep;
         timer.Interval=1000;timer.Tick+=(s,e)=>{seconds--;UpdateText();if(seconds<=0){DialogResult=DialogResult.Cancel;Close();}};UpdateText();Shown+=(s,e)=>timer.Start();FormClosed+=(s,e)=>timer.Dispose();
+        Theme.Apply(this);
     }
     void UpdateText(){countdown.Text="Can you see the display clearly?\nReverting automatically in "+seconds+" seconds.";}
 }

@@ -25,7 +25,7 @@ internal static class Tests {
         root=Path.Combine(App.Folder,"test-work",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
         try{
             Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
-            Clicks();Sliders();Metadata();Arguments();Install();
+            Clicks();KeyboardModes();SliderInput();Sliders();Metadata();Arguments();Install();
             if(args.Contains("--online")){var release=System.Threading.Tasks.Task.Run(()=>Updates.Check()).GetAwaiter().GetResult();Assert(release.Version!=null,"Live release lookup failed");string file=System.Threading.Tasks.Task.Run(()=>Updates.Download(release,n=>{})).GetAwaiter().GetResult();Assert(File.Exists(file),"Live update download failed");File.Delete(file);Directory.Delete(Path.GetDirectoryName(file));Console.WriteLine("Live GitHub check, download and verification passed: "+release.Version);}
             Console.WriteLine("Passed "+count+" checks.");return 0;
         }catch(Exception ex){Console.Error.WriteLine(ex);return 1;}
@@ -36,17 +36,24 @@ internal static class Tests {
         gate.Single(3000);gate.Cancel();Assert(!gate.TakeSingle(3600),"Right-click cancellation failed");
     }
     static IEnumerable<Control> All(Control c){foreach(Control child in c.Controls){yield return child;foreach(var nested in All(child))yield return nested;}}
+    static void KeyboardModes(){Assert(Keyboard.ModeForStandard(true)==0,"Checked must select F1-F12 mode, not brightness/media keys");Assert(Keyboard.ModeForStandard(false)==1,"Unchecked must select brightness/media keys");Assert(Keyboard.StandardForMode(0),"Reading standard-key mode must check the box");Assert(!Keyboard.StandardForMode(1),"Reading media-key mode must uncheck the box");}
+    static void SliderInput(){using(var slider=new BrightnessSlider()){
+        slider.AccessibilityObject.Value="35%";Assert(slider.Value==35,"Accessible slider value was not applied");slider.AccessibilityObject.Value="999%";Assert(slider.Value==100,"Slider did not clamp an out-of-range value");
+        var key=typeof(BrightnessSlider).GetMethod("OnKeyDown",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic);
+        key.Invoke(slider,new object[]{new KeyEventArgs(Keys.Home)});Assert(slider.Value==0,"Home did not select minimum brightness");key.Invoke(slider,new object[]{new KeyEventArgs(Keys.Left)});Assert(slider.Value==0,"Arrow key moved below minimum brightness");key.Invoke(slider,new object[]{new KeyEventArgs(Keys.PageUp)});Assert(slider.Value==10,"Page Up did not increase brightness by one step");
+        slider.Enabled=false;slider.AccessibilityObject.Value="80%";Assert(slider.Value==10,"Disabled slider accepted an accessibility change");
+    }}
     static void Pump(int ms){var timer=Stopwatch.StartNew();while(timer.ElapsedMilliseconds<ms){Application.DoEvents();Thread.Sleep(10);}}
     static void Sliders(){
         var changes=new List<string>();var a=new Hid.Display{Id="studio",Name="Studio Display",Min=400,Max=60000,Raw=30000};var b=new Hid.Display{Id="xdr",Name="Studio Display XDR",Min=400,Max=60000,Raw=60000};
         using(var popup=new QuickBrightness((id,value)=>changes.Add(id+":"+value),()=>{})){
-            popup.Sync(new[]{a,b});var sliders=All(popup).OfType<TrackBar>().ToArray();Assert(sliders.Length==2,"Two displays did not get two sliders");
+            popup.Sync(new[]{a,b});var sliders=All(popup).OfType<BrightnessSlider>().ToArray();Assert(sliders.Length==2,"Two displays did not get two sliders");
             var studio=sliders.Single(s=>s.AccessibleName=="Studio Display brightness percent");studio.Value=30;studio.Value=40;Pump(220);
             Assert(changes.SequenceEqual(new[]{"studio:40"}),"Rapid changes were not coalesced or targeted the wrong display");
-            popup.Result("studio",40,40,null);popup.Sync(new[]{b});Assert(All(popup).OfType<TrackBar>().Count()==1,"Disconnected display remained in the popup");
-            b.Active=0;b.Presets.Add(new Hid.Preset{Index=0,Name="Photography (P3-D65)"});popup.Sync(new[]{b});Assert(!All(popup).OfType<TrackBar>().Single().Enabled,"Calibrated preset did not lock its slider");
-            popup.Sync(new Hid.Display[0]);Assert(!All(popup).OfType<TrackBar>().Any(),"Empty state retained a slider");
-            popup.Sync(new[]{a,b});popup.Render(Path.Combine(App.Folder,"quick-preview-two-displays.png"));
+            popup.Result("studio",40,40,null);popup.Sync(new[]{b});Assert(All(popup).OfType<BrightnessSlider>().Count()==1,"Disconnected display remained in the popup");
+            b.Active=0;b.Presets.Add(new Hid.Preset{Index=0,Name="Photography (P3-D65)"});popup.Sync(new[]{b});Assert(!All(popup).OfType<BrightnessSlider>().Single().Enabled,"Calibrated preset did not lock its slider");
+            popup.Sync(new Hid.Display[0]);Assert(!All(popup).OfType<BrightnessSlider>().Any(),"Empty state retained a slider");
+            b.Presets.Clear();popup.Sync(new[]{a,b});popup.Render(Path.Combine(App.Folder,"quick-preview-two-displays.png"));
         }
     }
     static void Metadata(){

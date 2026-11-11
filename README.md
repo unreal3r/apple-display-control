@@ -2,6 +2,8 @@
 
 A small, portable Windows app for **Apple Studio Display** and **Studio Display XDR**, with an Apple keyboard function-key preference. It talks directly to the display and keyboard drivers; it does not launch the Boot Camp control panel.
 
+The app, tray popup, menus and dialogs use dark mode by default. No theme toggle or extra UI packages are required.
+
 ## Use
 
 Open **Apple Display Control.exe**. Choose a display, then adjust brightness or choose a reference preset. Brightness changes are silent. Closing the window leaves the app in the notification area; choose **Quit** to stop it. Double-click the notification icon or run the app again to reopen it.
@@ -18,6 +20,8 @@ Open **Apple Display Control.exe**. Choose a display, then adjust brightness or 
 - Reads preset names and descriptions from the display, rather than hardcoding a list.
 - Preset changes automatically revert after 15 seconds unless confirmed. Switching is paused while any Windows output has HDR enabled, or if HDR/current-preset information cannot be read.
 - Apple keyboard **Use F1, F2, etc. as standard function keys** preference. Hold Fn for the other action. Saving asks Windows for administrator approval, updates the Apple keyboard driver, and stores the preference for reconnection/restart. Connected supported keyboards receive the change immediately.
+
+The keyboard checkbox matches Boot Camp: **checked → F1 acts as F1; unchecked → F1 acts as brightness down**. Version 0.2.1 corrects the reversed live-driver mapping in earlier versions. Both the live driver and saved `OSXFnBehavior` flag use 0 for standard keys and 1 for media keys.
 
 Keep the executable in a permanent folder before enabling launch at login. Settings and bounded diagnostic logs are stored beside it, so that folder must be writable. You can disable launch at login using the same checkbox.
 
@@ -54,6 +58,7 @@ Source files:
 - `App.cs`: window, notification area, connection detection, startup preference, and diagnostics.
 - `QuickBrightness.cs`: compact sliders and single/double-click handling.
 - `Updates.cs`: fixed-repository update checks, verified downloads, and atomic app replacement.
+- `Theme.cs`: shared dark colors and compact, keyboard-accessible sliders.
 
 Run `test.cmd` for the tray, multi-display, updater and security checks. `test.cmd --online` additionally checks the live GitHub release API. The installation test uses isolated fixture executables and verifies replacement, restart, backup, and preservation of settings; it does not replace your installed app.
 

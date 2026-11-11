@@ -81,11 +81,14 @@ internal static class Hid {
     }
     internal sealed class Display {
         internal string Id, Name, BrightnessPath, PresetPath;
+        internal string Alias;
+        internal string Label{get{return string.IsNullOrWhiteSpace(Alias)?Name:Alias;}}
+        internal bool Adjustable{get{var active=Presets.Find(p=>p.Index==Active);return active==null||active.Adjustable;}}
         internal int Min,Max; internal uint Raw;
         internal List<Preset> Presets=new List<Preset>();
         internal int? Active;
         internal int Percent { get { return (int)Math.Round(100.0*(Raw-Min)/(Max-Min)); } }
-        public override string ToString() { return Name; }
+        public override string ToString() { return Label; }
         internal void Refresh() { using(var e=new Endpoint(BrightnessPath)) Raw=e.Read(0x82,0x10); }
         internal void RefreshActive() {if(PresetPath!=null)using(var e=new Endpoint(PresetPath))Active=(int)e.Read(0xFF20,3);}
         internal void SetBrightness(int percent) {

@@ -14,6 +14,13 @@ Open **Apple Display Control.exe**. Choose a display, then adjust brightness or 
 
 The popup opens immediately using the already loaded display state, then refreshes device information in the background. It does not wait for the double-click interval or a new hardware scan. On a double-click the popup switches to the full window.
 
+### Display names, order and brightness controls
+
+- **Arrange…** in the full app lets you rename connected displays and move them up/down. Names and order appear in both views and are remembered using Windows' display identity, including while a display is disconnected. Leave a name blank to restore its original name.
+- **0%** is at the far left of each brightness slider and **100%** at the far right, in both the full app and tray popup. 0% is minimum hardware brightness, not screen-off.
+- In the tray popup, **scroll over a display card** to adjust it in 5% steps. Hold **Shift** for 1% steps. Partial high-resolution wheel deltas are accumulated.
+- **Link** in the popup, or **Link brightness** in the full app, makes subsequent slider, wheel and 0%/100% changes apply to all connected displays with adjustable brightness. Fixed-brightness reference presets are skipped. The setting is remembered, and enabling it alone does not immediately change brightness.
+
 **App updates…** in the full window, or **Check for updates…** in the right-click menu, checks this project's stable GitHub releases. Choose **Download and restart** to install a newer version. Updates preserve your settings and startup shortcut, run without administrator access, and keep the previous executable as a backup. Version 0.1.0 needs one manual upgrade to get this feature.
 
 - Separate brightness and reference presets for each connected display.
@@ -64,6 +71,7 @@ Source files:
 - `Updates.cs`: fixed-repository update checks, verified downloads, and atomic app replacement.
 - `Theme.cs`: shared dark colors and compact, keyboard-accessible sliders.
 - `Dpi.cs`, `app.config`, `app.manifest`: Windows high-DPI configuration and startup handling.
+- `DisplayPreferences.cs`: saved display names/order and the arrangement editor.
 
 Run `test.cmd` for the tray, multi-display, updater and security checks. `test.cmd --online` additionally checks the live GitHub release API. The installation test uses isolated fixture executables and verifies replacement, restart, backup, and preservation of settings; it does not replace your installed app.
 

@@ -28,7 +28,8 @@ internal static class Theme {
 // A small painted slider avoids the light native trackbar in the dark UI.
 // Keyboard and accessibility values remain available without a UI framework.
 internal sealed class BrightnessSlider:Control {
-    int value,minimum,maximum=100;bool hover;
+    int value,minimum,maximum=100,wheelRemainder;bool hover;
+    internal bool WheelEnabled;
     internal event EventHandler ValueChanged;
     internal int Minimum{get{return minimum;}set{minimum=value;Value=this.value;}}
     internal int Maximum{get{return maximum;}set{maximum=value;Value=this.value;}}
@@ -40,6 +41,8 @@ internal sealed class BrightnessSlider:Control {
     protected override void OnMouseDown(MouseEventArgs e){base.OnMouseDown(e);if(e.Button==MouseButtons.Left&&Enabled){Focus();Capture=true;SetFromX(e.X);}}
     protected override void OnMouseMove(MouseEventArgs e){base.OnMouseMove(e);if(Capture)SetFromX(e.X);}
     protected override void OnMouseUp(MouseEventArgs e){base.OnMouseUp(e);if(e.Button==MouseButtons.Left){Capture=false;Invalidate();}}
+    internal bool AdjustWheel(int delta,bool fine){if(!Enabled)return false;wheelRemainder+=delta;int notches=wheelRemainder/120;wheelRemainder%=120;Value+=notches*(fine?1:5);return notches!=0;}
+    protected override void OnMouseWheel(MouseEventArgs e){if(!WheelEnabled){base.OnMouseWheel(e);return;}AdjustWheel(e.Delta,(ModifierKeys&Keys.Shift)!=0);var handled=e as HandledMouseEventArgs;if(handled!=null)handled.Handled=true;}
     protected override void OnMouseEnter(EventArgs e){base.OnMouseEnter(e);hover=true;Invalidate();}
     protected override void OnMouseLeave(EventArgs e){base.OnMouseLeave(e);hover=false;Invalidate();}
     protected override void OnEnabledChanged(EventArgs e){base.OnEnabledChanged(e);Cursor=Enabled?Cursors.Hand:Cursors.Default;Invalidate();}

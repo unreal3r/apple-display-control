@@ -14,20 +14,23 @@ internal sealed class TrayClickGate {
     internal void Double(long now) {suppressUntil=now+interval;}
 }
 
-internal sealed class QuickBrightness : Form {
+internal sealed class QuickBrightness : Form,IMessageFilter {
     readonly FlowLayoutPanel rows=new FlowLayoutPanel();
     readonly Label feedback=new Label();
     readonly Dictionary<string,BrightnessRow> controls=new Dictionary<string,BrightnessRow>();
     readonly Action<string,int> change;
+    readonly CheckBox link=new CheckBox();bool settingLink;
+    internal bool Linked{get{return link.Checked;}set{settingLink=true;link.Checked=value;settingLink=false;}}
     Point anchor;
     internal bool Interacting {get{return controls.Values.Any(row=>row.Interacting);}}
-    internal QuickBrightness(Action<string,int> change,Action open) {
+    internal QuickBrightness(Action<string,int> change,Action open,Action<bool> linkChanged=null) {
         SuspendLayout();AutoScaleDimensions=new SizeF(96,96);
         this.change=change;Text="Quick brightness";Font=new Font("Segoe UI",10);ForeColor=Theme.Text;
         BackColor=Theme.Popup;FormBorderStyle=FormBorderStyle.None;ControlBox=false;DoubleBuffered=true;
         ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.Manual;AutoScaleMode=AutoScaleMode.Dpi;
         ClientSize=new Size(392,240);KeyPreview=true;
-        var title=new Label {Text="Brightness",Font=new Font("Segoe UI",14,FontStyle.Bold),Dock=DockStyle.Top,Height=58,Padding=new Padding(20,19,0,0)};
+        var title=new SmoothPanel {Dock=DockStyle.Top,Height=58};var heading=new Label{Text="Brightness",Font=new Font("Segoe UI",14,FontStyle.Bold)};heading.SetBounds(20,19,230,31);title.Controls.Add(heading);
+        link.Text="Link";link.SetBounds(285,20,85,28);link.AccessibleName="Link brightness across displays";link.CheckedChanged+=(s,e)=>{if(!settingLink&&linkChanged!=null)linkChanged(link.Checked);};title.Controls.Add(link);Theme.Apply(title);
         var full=new LinkLabel {Text="Open display controls  →",Dock=DockStyle.Bottom,Height=50,Padding=new Padding(21,12,0,0),TabStop=true,LinkColor=Theme.Muted,ActiveLinkColor=Theme.Accent,VisitedLinkColor=Theme.Muted,LinkBehavior=LinkBehavior.HoverUnderline};
         full.LinkClicked+=(s,e)=>{Hide();open();};
         feedback.Dock=DockStyle.Bottom;feedback.Height=38;feedback.Visible=false;feedback.Padding=new Padding(20,4,20,0);feedback.ForeColor=Theme.Muted;feedback.AutoEllipsis=true;
@@ -38,6 +41,10 @@ internal sealed class QuickBrightness : Form {
         ResumeLayout(false);PerformAutoScale();
     }
     protected override CreateParams CreateParams {get{var p=base.CreateParams;p.ClassStyle|=0x20000;return p;}}
+    protected override void OnVisibleChanged(EventArgs e){base.OnVisibleChanged(e);if(Visible)Application.AddMessageFilter(this);else Application.RemoveMessageFilter(this);}
+    public bool PreFilterMessage(ref Message message){if(!Visible||message.Msg!=0x20A)return false;var control=Control.FromChildHandle(message.HWnd);if(control==null||control.FindForm()!=this)return false;WheelAt(Cursor.Position,(short)((message.WParam.ToInt64()>>16)&0xffff),(ModifierKeys&Keys.Shift)!=0);return true;}
+    internal void WheelAt(Point point,int delta,bool fine){foreach(var row in controls.Values)if(row.RectangleToScreen(row.ClientRectangle).Contains(point)){row.AdjustWheel(delta,fine);break;}}
+    protected override void Dispose(bool disposing){if(disposing)Application.RemoveMessageFilter(this);base.Dispose(disposing);}
     internal void Sync(IEnumerable<Hid.Display> displays) {
         var list=displays.ToList();var ids=new HashSet<string>(list.Select(d=>d.Id));
         foreach(string id in controls.Keys.ToArray()) if(!ids.Contains(id)){var row=controls[id];rows.Controls.Remove(row);row.Dispose();controls.Remove(id);}
@@ -45,9 +52,10 @@ internal sealed class QuickBrightness : Form {
             if(rows.Controls.Count==0)rows.Controls.Add(new Label {Name="empty",Text="No displays connected\nConnect a Studio Display or Studio Display XDR.",ForeColor=Theme.Muted,AutoSize=false,Width=Theme.Px(this,360),Height=Theme.Px(this,86),Padding=new Padding(Theme.Px(this,4),Theme.Px(this,12),0,0)});
         }else {
             foreach(Control c in rows.Controls.Cast<Control>().Where(c=>c.Name=="empty").ToArray()){rows.Controls.Remove(c);c.Dispose();}
-            foreach(var d in list) {
+            int index=0;foreach(var d in list) {
                 BrightnessRow row;if(!controls.TryGetValue(d.Id,out row)){row=new BrightnessRow(d.Id,change);controls.Add(d.Id,row);rows.Controls.Add(row);}
                 row.Sync(d);row.LayoutAtDpi(DeviceDpi);
+                if(rows.Controls.GetChildIndex(row)!=index)rows.Controls.SetChildIndex(row,index);index++;
             }
         }
         ResizeContent();
@@ -68,37 +76,44 @@ internal sealed class QuickBrightness : Form {
         BrightnessRow row;if(controls.TryGetValue(id,out row))row.Result(requested,actual);
         feedback.Text=error??"";feedback.Visible=error!=null;ResizeContent();
     }
+    internal void Pending(string id,int value){BrightnessRow row;if(controls.TryGetValue(id,out row))row.Pending(value);}
     internal void Render(string path) {
         bool wasTop=TopMost;TopMost=false;Opacity=0;Location=new Point(-30000,-30000);Show();PerformLayout();
         using(var bitmap=new Bitmap(Width,Height)){DrawToBitmap(bitmap,new Rectangle(0,0,Width,Height));bitmap.Save(path);}Hide();TopMost=wasTop;Opacity=1;
     }
     internal sealed class BrightnessRow : Panel {
         readonly string id;readonly Label name=new Label(),value=new Label(),note=new Label();
+        readonly Action<string,int> request;
+        readonly Button minimum=new Button(),maximum=new Button();
         readonly BrightnessSlider slider=new BrightnessSlider();readonly Timer debounce=new Timer();bool syncing,inFlight,adjustable=true;int layoutDpi;
         internal bool Interacting {get{return slider.Capture||debounce.Enabled||inFlight;}}
         internal BrightnessRow(string id,Action<string,int> change) {
-            this.id=id;Width=360;Height=94;Margin=new Padding(0,0,0,10);BackColor=Theme.Popup;DoubleBuffered=true;
+            this.id=id;request=change;Width=360;Height=94;Margin=new Padding(0,0,0,10);BackColor=Theme.Popup;DoubleBuffered=true;
             name.SetBounds(50,18,226,25);name.AutoEllipsis=true;name.ForeColor=Theme.Text;name.BackColor=Theme.Card;Controls.Add(name);
             value.SetBounds(285,15,57,28);value.TextAlign=ContentAlignment.MiddleCenter;value.Font=new Font("Segoe UI",10,FontStyle.Bold);value.ForeColor=Theme.Text;value.BackColor=Theme.Field;Controls.Add(value);
-            slider.Minimum=0;slider.Maximum=100;slider.LargeChange=10;slider.SetBounds(12,49,336,34);slider.BackColor=Theme.Card;Controls.Add(slider);
+            slider.Minimum=0;slider.Maximum=100;slider.LargeChange=10;slider.WheelEnabled=true;slider.SetBounds(68,49,224,34);slider.BackColor=Theme.Card;Controls.Add(slider);
+            minimum.Text="0%";minimum.SetBounds(16,52,48,28);minimum.Click+=(s,e)=>SetTarget(0);Controls.Add(minimum);maximum.Text="100%";maximum.SetBounds(296,52,48,28);maximum.Click+=(s,e)=>SetTarget(100);Controls.Add(maximum);Theme.Apply(minimum);Theme.Apply(maximum);
             note.SetBounds(18,87,324,25);note.ForeColor=Theme.Muted;note.BackColor=Theme.Card;Controls.Add(note);
             debounce.Interval=150;
             slider.ValueChanged+=(s,e)=>{value.Text=slider.Value+"%";if(!syncing){debounce.Stop();debounce.Start();}};
             debounce.Tick+=(s,e)=>{debounce.Stop();inFlight=true;change(id,slider.Value);};
         }
         internal void Sync(Hid.Display d) {
-            name.Text=d.Name;slider.AccessibleName=d.Name+" brightness percent";
+            name.Text=d.Label;slider.AccessibleName=d.Label+" brightness percent";
             var active=d.Presets.Find(p=>p.Index==d.Active);bool canAdjust=active==null||active.Adjustable;if(adjustable!=canAdjust){adjustable=canAdjust;layoutDpi=0;}
             if(!adjustable){debounce.Stop();inFlight=false;}
-            slider.Enabled=adjustable;note.Text=adjustable?"":"Fixed by the reference preset";
+            slider.Enabled=minimum.Enabled=maximum.Enabled=adjustable;note.Text=adjustable?"":"Fixed by the reference preset";
             if(!Interacting){syncing=true;slider.Value=Math.Max(0,Math.Min(100,d.Percent));value.Text=slider.Value+"%";syncing=false;}
         }
         internal void Result(int requested,int actual) {
             inFlight=false;
             if(!debounce.Enabled&&!slider.Capture&&slider.Value==requested){syncing=true;slider.Value=Math.Max(0,Math.Min(100,actual));value.Text=slider.Value+"%";syncing=false;}
         }
+        internal void Pending(int target){debounce.Stop();syncing=true;slider.Value=target;value.Text=slider.Value+"%";syncing=false;inFlight=true;}
+        void SetTarget(int target){if(!slider.Enabled)return;if(slider.Value!=target){slider.Value=target;return;}debounce.Stop();inFlight=true;request(id,target);}
+        internal void AdjustWheel(int delta,bool fine){int previous=slider.Value;if(slider.AdjustWheel(delta,fine)&&slider.Value==previous)SetTarget(slider.Value);}
         int P(int logical){return (int)Math.Round(logical*layoutDpi/96f);}
-        internal void LayoutAtDpi(int dpi){if(layoutDpi==dpi)return;layoutDpi=dpi;SuspendLayout();Size=new Size(P(360),P(adjustable?94:122));Margin=new Padding(0,0,0,P(10));name.SetBounds(P(50),P(18),P(226),P(25));value.SetBounds(P(285),P(15),P(57),P(28));slider.SetBounds(P(12),P(49),P(336),P(34));note.SetBounds(P(18),P(87),P(324),P(25));ResumeLayout(false);}
+        internal void LayoutAtDpi(int dpi){if(layoutDpi==dpi)return;layoutDpi=dpi;SuspendLayout();Size=new Size(P(360),P(adjustable?94:122));Margin=new Padding(0,0,0,P(10));name.SetBounds(P(50),P(18),P(226),P(25));value.SetBounds(P(285),P(15),P(57),P(28));minimum.SetBounds(P(16),P(52),P(48),P(28));slider.SetBounds(P(68),P(49),P(224),P(34));maximum.SetBounds(P(296),P(52),P(48),P(28));note.SetBounds(P(18),P(87),P(324),P(25));ResumeLayout(false);}
         protected override void OnPaint(PaintEventArgs e){base.OnPaint(e);e.Graphics.SmoothingMode=SmoothingMode.AntiAlias;float s=DeviceDpi/96f;using(var path=Theme.Rounded(new RectangleF(0,0,Width,Height),11*s))using(var brush=new SolidBrush(Theme.Card))e.Graphics.FillPath(brush,path);using(var pen=new Pen(Theme.Muted,1.5f*s)){e.Graphics.DrawRectangle(pen,18*s,21*s,21*s,14*s);e.Graphics.DrawLine(pen,28*s,35*s,28*s,39*s);e.Graphics.DrawLine(pen,23*s,39*s,33*s,39*s);}}
         protected override void Dispose(bool disposing){if(disposing)debounce.Dispose();base.Dispose(disposing);}
     }
